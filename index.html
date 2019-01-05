@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>Maze Test</title>
+    </head>
+
+    <body>
+        <canvas id="maze" width="600" height="600"></canvas>
+
+        <style>
+         #maze {
+             padding-left: 0;
+             padding-right: 0;
+             margin-left: auto;
+             margin-right: auto;
+             display: block;
+         }
+        </style>
+
+        <script>
+         function rm(A, e) {
+             var i = A.indexOf(e);
+             if (i !== -1) {
+                 A.splice(i, 1);
+             }
+             return A;
+         }
+         
+         class Maze {
+             constructor(ctx, init={}) {
+                 this.ctx = ctx;
+
+                 const n = this.n = init.n || 8;
+                 this.showRoomNumbers = init.showRoomNumbers;
+                 this.roomSize = init.roomSize || 50;
+                 this.roomLineWidth = init.roomLineWidth || 1;                 
+                 
+                 this.n = n;
+
+                 this.colors = init.colors || ['red', 'blue', 'green', 'pink'];
+                 
+                 this.validate();
+                 this.initialize();
+                 this.attachHandlers();                 
+             }
+
+             initialize() {
+                 this.G = this.generateGraph();
+
+                 const V = this.G.shuffle(this.G.V);
+                 for (const color of this.colors) {
+                     let v = V.pop();
+                     v.val = {
+                         color: color,
+                         label: '[_]',
+                     };
+                     v = V.pop();
+                     v.val = {
+                         color: color,
+                         label: '( )',
+                     };
+                 }
+
+                 this.G.btm();
+                 this.inv = [];
+                 
+                 this.points = 0;
+                 
+                 this.random();
+             }
+
+             generateGraph() {
+                 const G = new Graph(),
+                       n = this.n,
+                       s = n/2,
+                       ss = s*s,
+                       ns = n*n;
+                 
+                 for (var i=0; i<ns; ++i) {
+                     G.vertex(i);
+                 }
+
+                 for (const node of G.V) {
+                     const v = node.label,
+                           x = v%s,
+                           y = Math.floor((v/n)%s),
+                           qr = v%n > s-1,
+                           qd = v >= ns/2,
+                           q = qr && qd ? 3 : qr && !qd ? 1 : qd && !qr ? 2 : 0;
+                     
+                     let l = [v, v-1],
+                         r = [v, v+1],
+                         u = [v, v-s*2],
+                         d = [v, v+s*2];
+
+                     if (q === 0) {
+                         if (x === 0) {
+                             l = [v, v+(ss+ss+s+(s-1))];
+                         }
+                         if (y === 0) {
+                             u = [v, v+(ss+ss+ss+ss-s)];
+                         }
+                     } else if (q === 1) {
+                         if (x === 3) {
+                             r = [v, v+(ss+s+s+1)];
+                         }
+                         if (y === 0) {
+                             u = [v, v+(ss+ss+ss+s)];
+                         }
+                     } else if (q === 2) {
+                         if (x === 0) {
+                             l = [v, v-(ss+s+s+1)];
+                         }
+                         if (y === 3) {
+                             d = [v, s+(v%s)];                             
+                         }
+                     } else if (q === 3) {
+                         if (x === 3) {
+                             r = [v, -(ss+ss+s+(s-1))+v];
+                         }
+                         if (y === 3) {
+                             d = [v, -(ss+ss+ss+ss-s)+v];
+                         }
+                     }
+
+                     const add = (d, l) => G.edge(...(d.map(x => new Vertex(x))), l);
+                     add(l, 'l');
+                     add(r, 'r');
+                     add(u, 'u');
+                     add(d, 'd');
+                 }
+
+                 return G;
+             }
+
+             up() {
+                 this.go('u');
+             }
+
+             down() {
+                 this.go('d');
+             }
+
+             left() {
+                 this.go('l');
+             }
+
+             right() {
+                 this.go('r');
+             }
+
+             random() {
+                 const V = this.G.V;
+                 this.room = V[Math.floor(Math.random()*this.G.n)];
+                 this.draw();
+             }
+
+             go(label) {
+                 const v = this.room;
+                 for (const edge of this.G.E) {
+                     if (edge.u.label === v.label) {
+                         if (edge.label === label) {
+                             this.room = this.G.getVertex(edge.v.label);
+                             this.draw();
+                             return;
+                         }
+                     }
+                 }
+             }
+
+             draw() {
+                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                 const size = this.roomSize,
+                       offsetX = 100,
+                       offsetY = 50;
+                 
+                 ctx.lineWidth = this.roomLineWidth;
+
+                 const hash = (a, b) => a >= b ? a * a + a + b : a + b * b;
+                 let prevX = 0,
+                     prevY = 0;
+                 const drawn = new Set();
+                 const draw = (E, d, x, y) => {
+                     const h1 = hash(hash(prevX, prevY), hash(x, y));
+                     const h2 = hash(hash(x, y), hash(prevX, prevY));                     
+                     if (!E.has(d) && !drawn.has(h1) && !drawn.has(h2)) {
+                         drawn.add(h1);
+                         ctx.lineTo(x, y);
+                     } else {
+                         ctx.moveTo(x, y);
+                     }
+                     prevX = x;
+                     prevY = y;
+                 };
+
+                 for (const v of this.G.V) {
+                     ctx.beginPath();
+                     const x = (v.label % this.n) * size + offsetX,
+                           y = Math.floor(v.label/this.n) * size + offsetY;
+
+                     const E = new Set(this.G.directEdges(v).map(x => x.label));
+
+                     ctx.moveTo(x, y);
+                     prevX = x;
+                     prevY = y;
+                     draw(E, 'u', x + size, y);
+                     draw(E, 'r', x + size, y + size);
+                     draw(E, 'd', x, y + size);
+                     draw(E, 'l', x, y);
+
+                     if (v.label === this.room.label) { 
+                         ctx.fillStyle = 'lightblue';
+                         ctx.fillRect(x + ctx.lineWidth, y + ctx.lineWidth, size - ctx.lineWidth * 2, size - ctx.lineWidth * 2);
+                     }
+
+                     if (this.showRoomNumbers) {
+                         ctx.font = '8pt Arial';
+                         ctx.fillStyle = 'gray';
+                         ctx.fillText(v.label, (x+size/2) - 5, (y+size/2) + 4);
+                     }
+
+                     if (v.val !== null) {
+                         ctx.font = '12pt Arial';
+                         ctx.fillStyle = v.val.color;
+                         ctx.fillText(v.val.label, (x+size/2) - 9, (y+size/2) + 4);
+                     }
+
+                     ctx.stroke();
+                 }
+
+                 ctx.font = '16pt Arial';
+                 ctx.fillStyle = 'gray';
+
+                 if (this.inv.length === 0) {
+                     ctx.fillText('Your inventory is empty.', 100, canvas.height-100);
+                 } else {
+                     ctx.fillText('Inventory: ', 100, canvas.height-100);
+
+                     let i = 0;
+                     for (const item of this.inv) {
+                         ctx.font = '12pt Arial';
+                         ctx.fillStyle = item.color;
+                         i += 1;
+                         ctx.fillText(item.label, 170 + (i * 30), canvas.height-104);
+                     }
+                 }
+
+                 if (this.points < this.colors.length) {
+                     ctx.font = '16pt Arial';
+                     ctx.fillStyle = 'gray';
+                     ctx.fillText('You have ' + this.points + (this.points === 1 ? ' point. ' : ' points.'), 100, canvas.height-70);
+                 } else {
+                     ctx.font = '16pt Arial';
+                     ctx.fillStyle = 'blue';
+                     ctx.fillText('You win! Press "a" to play again.', 100, canvas.height-70);
+                 }
+             }
+             
+             validate() {
+                 const n = this.n;
+                 if (n < 8) {
+                     console.error('`n` must be greater than or equal to 8');
+                 }  else if (n % 2 !== 0) {
+                     console.error('`n` must be an even number');
+                 } else if (Math.floor(Math.sqrt(n/2)) !== Math.sqrt(n/2)) {
+                     console.error('`n`/2 must be a perfect square');
+                 }
+             }
+
+             attachHandlers() {
+                 let num = '';
+                 window.onkeydown = (e) => {
+                     if (e.key === 'ArrowLeft') {
+                         this.left();
+                     } else if (e.key === 'ArrowRight') {
+                         this.right();
+                     } else if (e.key === 'ArrowUp') {
+                         this.up();
+                     } else if (e.key === 'ArrowDown') {
+                         this.down();
+                     } else if (e.key === 'Enter') {
+                         if (this.room.val !== null) {
+                             if (this.room.val.label === '( )') {
+                                 this.inv.push(this.room.val);
+                                 this.room.val = null;
+                             } else {
+                                 let hasBall = false;
+                                 for (const ball of this.inv) {
+                                     if (ball.color === this.room.val.color) {
+                                         hasBall = true;
+                                         rm(this.inv, ball);                                         
+                                     }                                         
+                                 }
+                                 if (hasBall) {
+                                     this.points += 1;
+
+                                 }
+                             }
+                             this.draw();
+                         }
+                     } else if (e.key === 'a') {
+                         this.initialize();
+                     } else if (e.key === 'g' || e.key === ' ') {
+                         this.room = maze.G.V[+num];
+                         this.draw();
+                         num = '';
+                     } else if (e.key === 'e') {
+                         console.log(...(this.G.directEdges(this.room).map(x => x.label + ' ' + x.v.label)));
+                     } else if ('1234567890'.indexOf(e.key) > -1) {
+                         num += e.key;
+                     }
+                 };
+             }
+         }
+         
+         class Graph {
+             constructor(E=[], V=[]) {
+                 this.E = E;
+                 this.V = V;
+                 
+                 this.n = V.length;
+                 this.m = E.length;
+             }
+
+             edge(u, v, label=null, val=null) {
+                 this.E.push(new Edge(u, v, label, val));
+                 this.m += 1;
+             }
+
+             vertex(label=null, val=null) {
+                 this.V.push(new Vertex(label, val));
+                 this.n += 1;
+             }
+
+             directEdges(v) {
+                 const E = [];
+                 for (const e of this.E) {
+                     if (e.u.label === v.label) {
+                         E.push(e);
+                     }
+                 }
+                 return E;
+             }
+
+             edges(v) {
+                 const E = [];
+                 for (const e of this.E) {
+                     if (e.u.label === v.label || e.v.label === v.label) {
+                         E.push(e);
+                     }
+                 }
+                 return E;
+             }
+
+             getEdge(u, v) {
+                 for (const e of this.E) {
+                     if (e.u.label === u.label && e.v.label === v.label) {
+                         return e;
+                     }
+                 }
+                 return null;
+             }
+
+             getVertex(label) {
+                 for (const v of this.V) {
+                     if (label === v.label) {
+                         return v;
+                     }
+                 }
+                 return null;
+             }
+
+             incidentVertices(v) {
+                 const E = this.directEdges(v),
+                       V = new Map();
+
+                 for (const e of E) {
+                     V.set(e.v.label, e.v);
+                 }
+
+                 V.delete(v.label);
+
+                 return V.values();
+             }
+
+             shuffle(OL) {
+                 const L = [...OL];
+
+                 for (let i=0; i<L.length-2; ++i) {
+                     const j = Math.floor(Math.random()*L.length);
+                     const temp = L[i];
+                     L[i] = L[j];
+                     L[j] = temp;
+                 }
+
+                 return L;
+             }
+
+             btm() {
+                 const SEEN = new Set(),
+                       S = [],
+                       V = this.V,
+                       E = this.E;
+                 
+                 let u = V[0];
+                 
+                 SEEN.add(u.label);
+
+                 while (SEEN.size !== V.length) {
+                     let notVisited = null;
+                     const incidents = this.shuffle(this.incidentVertices(u));
+                     for (const v of incidents) {
+                         if (!SEEN.has(v.label)) {
+                             notVisited = v;
+                         }
+                     }
+
+                     if (notVisited !== null) {
+                         const v = notVisited;
+                         
+                         S.push(u);
+
+                         const uv = this.getEdge(u, v);
+                         rm(E, uv);
+                         
+                         const vu = this.getEdge(v, u);
+                         rm(E, vu);
+
+                         if (vu ===null ||  uv ===null) {
+                             console.log(uv, vu);
+                         }
+
+                         u = v;
+                         SEEN.add(u.label);
+                         
+                     } else if (S.length > 0) {
+                         u = S.pop();
+                     }
+                 }
+             }
+
+             kruskal() {
+                 // Randomized Kruskal's algorithm
+                 const W = this.shuffle(this.E),
+                       C = new Map();
+
+                 for (const v of this.V) {
+                     C.set(v.label, new Set([v]));
+                 }
+
+                 for (const w of W) {
+                     const U = C.get(w.u.label),
+                           V = C.get(w.v.label),
+                           J = new Set([...C.get(w.u.label), ...C.get(w.v.label)]);
+                     
+                     if (J.size === (U.size + V.size)) {
+                         var i = this.E.indexOf(w);
+                         if (i !== -1) {
+                             this.E.splice(i, 1);
+                         }
+
+                         var i = this.E.indexOf(this.getEdge(w.v, w.u));
+                         if (i !== -1) {
+                             this.E.splice(i, 1);
+                         }
+                         
+                         C.set(w.u.label, J);
+                         C.set(w.v.label, J);                         
+                     }
+                 }
+
+                 return C;
+             }
+         }
+
+         class Edge {
+             constructor(u, v, label=null, val=null) {
+                 this.u = u;
+                 this.v = v;
+                 this.label = label;
+                 this.val = val;                 
+             }
+         }
+
+         class Vertex {
+             constructor(label=null, val=null) {
+                 this.label = label;
+                 this.val = val;                                  
+             }
+         }
+
+         const canvas = document.getElementById('maze'),
+               ctx = canvas.getContext('2d');
+         const maze = new Maze(ctx, {
+             roomLineWidth: 1
+         });
+        </script>
+    </body>
+</html>
